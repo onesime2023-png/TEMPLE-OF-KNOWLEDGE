@@ -1,22 +1,107 @@
+
 rules_version = '2';
+
 service cloud.firestore {
- match /databases/{database}/documents {
-  function signed(){return request.auth!=null;}
-  function me(){return get(/databases/$(database)/documents/users/$(request.auth.uid));}
-  function active(){return signed()&&me().data.active==true;}
-  function admin(){return active()&&me().data.role=='admin';}
-  function teacher(){return active()&&me().data.role=='teacher';}
-  function student(){return active()&&me().data.role=='student';}
-  match /users/{uid}{allow read:if admin()||(signed()&&request.auth.uid==uid);allow write:if false;}
-  match /classes/{id}{allow read:if active();allow write:if admin();}
-  match /subjects/{id}{allow read:if active();allow write:if admin();}
-  match /exams/{id}{
-   allow read:if admin()||teacher()||(student()&&resource.data.status=='published'&&resource.data.className==me().data.className);
-   allow create:if admin()||(teacher()&&request.resource.data.teacherId==request.auth.uid);
-   allow update,delete:if admin()||(teacher()&&resource.data.teacherId==request.auth.uid);
-   match /questions/{qid}{allow read:if admin()||teacher()||(student()&&get(/databases/$(database)/documents/exams/$(id)).data.status=='published'&&get(/databases/$(database)/documents/exams/$(id)).data.className==me().data.className);allow write:if admin()||(teacher()&&get(/databases/$(database)/documents/exams/$(id)).data.teacherId==request.auth.uid);}
-   match /answerKeys/{qid}{allow read,write:if admin()||(teacher()&&get(/databases/$(database)/documents/exams/$(id)).data.teacherId==request.auth.uid);}
-   match /submissions/{sid}{allow read:if admin()||(teacher()&&get(/databases/$(database)/documents/exams/$(id)).data.teacherId==request.auth.uid)||(student()&&request.auth.uid==sid);allow create,update,delete:if false;}
+  match /databases/{database}/documents {
+
+    function signed() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      );
+    }
+
+    function active() {
+      return signed() && me().data.active == true;
+    }
+
+    function admin() {
+      return active() && me().data.role == 'admin';
+    }
+
+    function teacher() {
+      return active() && me().data.role == 'teacher';
+    }
+
+    function student() {
+      return active() && me().data.role == 'student';
+    }
+
+    function examData(id) {
+      return get(
+        /databases/$(database)/documents/exams/$(id)
+      ).data;
+    }
+
+    function ownsExam(id) {
+      return teacher() &&
+        examData(id).teacherId == request.auth.uid;
+    }
+
+    function publishedForStudent(id) {
+      return student() &&
+        examData(id).status == 'published' &&
+        examData(id).className == me().data.className;
+    }
+
+    match /users/{uid} {
+      allow read: if admin() ||
+        (signed() && request.auth.uid == uid);
+      allow write: if false;
+    }
+
+    match /classes/{id} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /subjects/{id} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    match /exams/{id} {
+      allow read: if admin() ||
+        ownsExam(id) ||
+        publishedForStudent(id);
+
+      allow create: if admin() ||
+        (teacher() &&
+         request.resource.data.teacherId == request.auth.uid &&
+         request.resource.data.status == 'draft');
+
+      allow update: if admin() ||
+        (ownsExam(id) &&
+         resource.data.status == 'draft' &&
+         request.resource.data.teacherId == resource.data.teacherId);
+
+      allow delete: if admin() ||
+        (ownsExam(id) && resource.data.status == 'draft');
+
+      match /questions/{qid} {
+        allow read: if admin() ||
+          ownsExam(id) ||
+          publishedForStudent(id);
+
+        allow write: if admin() ||
+          (ownsExam(id) && examData(id).status == 'draft');
+      }
+
+      match /answerKeys/{qid} {
+        allow read, write: if admin() ||
+          (ownsExam(id) && examData(id).status == 'draft');
+      }
+
+      match /submissions/{sid} {
+        allow read: if admin() ||
+          ownsExam(id) ||
+          (student() && request.auth.uid == sid);
+
+        allow create, update, delete: if false;
+      }
+    }
   }
- }
 }
